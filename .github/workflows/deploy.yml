@@ -1,0 +1,74 @@
+name: Deploy To VPS Via SSH
+
+on:
+  push:
+    branches:
+      - main
+      
+env:
+  IMAGE_NAME: ghcr.io/wanxsky/penginapan-risni:latest
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    environment: CI/CD
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+    
+    - name: Login To GHCR.IO
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PAT }}
+    
+    - name: Build and Push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ env.IMAGE_NAME }}
+  
+  deploy-to-vps:
+    needs: build-and-push
+    environment: CI/CD
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deploy To SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USERNAME }}
+        key: ${{ secrets.VPS_KEY }}
+        port: ${{ secrets.VPS_PORT }}
+        script: |
+          echo "Go To Workdir"
+          cd /var/www/penginapan
+          
+          echo "Login To Docker"
+          echo "${{ secrets.GHCR_PAT }}" | docker ghcr.io login -u wanxsky --password-stdin
+          
+          echo "Pulling Image Docker"
+          docker compose pull
+          
+          echo "Restaring.."
+          docker compose down
+          docker compose up -d
+          
+          echo "Delete Junk Image.."
+          docker image prune -f
+
+          echo "Migrations Database..."
+          docker exec penginapan-app php artisan migrate --force
+
+          echo "Optimizing.."
+          docker exec penginapan-app php artisan config:clear 
+          docker exec penginapan-app php artisan cache:clear
+
+          echo "Run Schedule.."
+          docker exec penginapan-app php artisan schedule:run
+          
+          echo "Deployed"
