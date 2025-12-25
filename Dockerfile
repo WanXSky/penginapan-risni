@@ -1,7 +1,7 @@
 FROM composer:2 AS vendor-build
 WORKDIR /app
 COPY composer.json composer.lock .
-RUN composer install --prefer-dist --optimize-autoloader --no-interaction
+RUN composer install --prefer-dist --optimize-autoloader --no-interaction --no-scripts
 
 FROM node:22-alpine AS node-build
 WORKDIR /app
